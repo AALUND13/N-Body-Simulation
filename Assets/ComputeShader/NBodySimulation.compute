@@ -1,0 +1,87 @@
+﻿#pragma kernel CSMain
+
+struct Collision {
+    int bodyA;
+    int bodyB;
+    float depth;
+};
+
+struct CelestialBody {
+    float3 position;
+    float3 velocity;
+    float3 force;
+    float radius;
+    float mass;
+};
+
+RWStructuredBuffer<Collision> Collisions;
+RWStructuredBuffer<int> CollisionCount;
+RWStructuredBuffer<CelestialBody> Bodies;
+int numBodies;
+float timeScale;
+float gravitationalConstant;
+float deltaTime;
+
+[numthreads(64,1,1)]
+void CSMain(uint3 id : SV_DispatchThreadID) {
+    int index = id.x;
+    if (index >= numBodies) return;
+    CelestialBody body = Bodies[index];
+
+    float3 acceleration = float3(0,0,0);
+    body.force = float3(0,0,0); // Store total force applied
+
+    float3 myPos = Bodies[index].position;
+    float myMass = Bodies[index].mass;
+    float myRadius = Bodies[index].radius;
+
+    for (int i = 0; i < numBodies; i++) {
+        if (i == index) continue;
+
+        float3 direction = Bodies[i].position - myPos;
+        float sqdist = dot(direction, direction);
+        sqdist = max(sqdist, 1e-6); // Prevent division by zero
+
+        float otherMass = Bodies[i].mass;
+
+        // Compute force magnitude using squared distance (avoids sqrt)
+        float forceMag = (gravitationalConstant * (myMass * otherMass)) / sqdist;
+        float dist = sqrt(sqdist); // Compute only when needed
+
+        // Compute force direction
+        float3 forceDir = (dist > 0) ? direction / dist : float3(0, 0, 0);
+        float3 individualForce = forceMag * forceDir;
+
+        // Accumulate force and acceleration
+        body.force += individualForce;
+        acceleration += (forceMag / myMass) * forceDir;
+
+        // Collision check using squared distance
+        float otherRadius = Bodies[i].radius;
+        float radiiSum = myRadius + otherRadius;
+        float radiiSumSq = radiiSum * radiiSum;
+
+        if (sqdist < radiiSumSq) {
+            float penetrationDepth = radiiSum - dist;
+
+            if (penetrationDepth > 0) {
+                int collisionIndex;
+                InterlockedAdd(CollisionCount[0], 1, collisionIndex);
+
+                Collision newCollision;
+                newCollision.bodyA = index;
+                newCollision.bodyB = i;
+                newCollision.depth = penetrationDepth;
+                Collisions[collisionIndex] = newCollision;
+            }
+        }
+    }
+
+    // Apply acceleration to velocity and update position
+    if (!any(isnan(acceleration))) {
+        body.velocity += acceleration * deltaTime * timeScale;
+        body.position += body.velocity * deltaTime * timeScale;
+    }
+
+    Bodies[index] = body;
+}
