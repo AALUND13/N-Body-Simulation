@@ -15,7 +15,7 @@ public class CelestialBodyManager : MonoBehaviour {
     [Header("Simulation Settings")]
     public float TimeScale = 1f;
     public float GravitationalConstant = 0.0001f;
-    public bool UseUnityPhysics = false;
+    //public bool UseUnityPhysics = false;
 
     [Header("Generation")]
     public bool useRandomGeneration = false;
@@ -29,6 +29,7 @@ public class CelestialBodyManager : MonoBehaviour {
     public Vector2 CenterMassRange = new Vector2(10000, 1000000);
 
     public InitialVelocityType initialVelocityType = InitialVelocityType.Orbital;
+    public Material material;
 
     [Header("Compute Shader")]
     public ComputeShader nBodyComputeShader;
@@ -40,76 +41,52 @@ public class CelestialBodyManager : MonoBehaviour {
 
     private CelestialBodyDate[] celestialBodyData;
     private Collision[] collisions;
+    private List<Matrix4x4> matrices = new List<Matrix4x4>();
     private int[] collisionCount;
+
+    private RenderParams renderParams;
+    [SerializeField] private Mesh mesh;
 
     private int bufferCapacity = 10;
 
-    internal Dictionary<CelestialBody, (List<Vector3>, List<Vector3>)> positionsDict = new Dictionary<CelestialBody, (List<Vector3>, List<Vector3>)>();
+    //internal Dictionary<CelestialBody, (List<Vector3>, List<Vector3>)> positionsDict = new Dictionary<CelestialBody, (List<Vector3>, List<Vector3>)>();
 
-    private float cachedStep => positionsDict.Count > 0 ? positionsDict.Max(pair => pair.Value.Item1.Count) : 0;
+    //private float cachedStep => positionsDict.Count > 0 ? positionsDict.Max(pair => pair.Value.Item1.Count) : 0;
 
-    public Dictionary<CelestialBody, List<Vector3>> SimulateStep(int steps) {
-        foreach(var body in celestialBodies) {
-            if(!positionsDict.TryGetValue(body, out var lists)) {
-                positionsDict[body] = (new List<Vector3> { body.transform.position }, new List<Vector3> { body.Velocity });
-            }
-        }
+    //public Dictionary<CelestialBody, List<Vector3>> SimulateStep(int steps) {
+    //    foreach(var body in celestialBodies) {
+    //        if(!positionsDict.TryGetValue(body, out var lists)) {
+    //            positionsDict[body] = (new List<Vector3> { body.Position }, new List<Vector3> { body.Velocity });
+    //        }
+    //    }
 
 
-        if(celestialBodies.Count == 0)
-            return positionsDict.ToDictionary(pair => pair.Key, pair => pair.Value.Item1);
+    //    if(celestialBodies.Count == 0)
+    //        return positionsDict.ToDictionary(pair => pair.Key, pair => pair.Value.Item1);
 
-        if(celestialBodyDataBuffer == null || celestialBodyData.Length != celestialBodies.Count) {
-            InitializeBuffers(); // Reallocate buffers if count changes
-        }
+    //    if(celestialBodyDataBuffer == null || celestialBodyData.Length != celestialBodies.Count) {
+    //        InitializeBuffers(); // Reallocate buffers if count changes
+    //    }
 
-        for(int i = 0; i < Mathf.Max(steps - cachedStep, 0); i++) {
-            DispatchComputeShader(true);
+    //    for(int i = 0; i < Mathf.Max(steps - cachedStep, 0); i++) {
+    //        DispatchComputeShader(true);
 
-            for(int j = 0; j < celestialBodies.Count; j++) {
-                CelestialBody body = celestialBodies[j];
-                positionsDict[body].Item1.Add(celestialBodyData[j].position);
-                positionsDict[body].Item2.Add(celestialBodyData[j].position);
-            }
-        }
+    //        for(int j = 0; j < celestialBodies.Count; j++) {
+    //            CelestialBody body = celestialBodies[j];
+    //            positionsDict[body].Item1.Add(celestialBodyData[j].position);
+    //            positionsDict[body].Item2.Add(celestialBodyData[j].position);
+    //        }
+    //    }
 
-        return positionsDict.ToDictionary(pair => pair.Key, pair => pair.Value.Item1);
-    }
-
-    public GameObject CreateBodyFromObject(GameObject gameObject, Vector3 position, Vector3 velocity, float mass) {
-        GameObject body = Instantiate(CelestialBodyPrefab, position, Quaternion.identity);
-        CelestialBody celestialBody = body.GetComponent<CelestialBody>();
-        celestialBody._mass = mass;
-        celestialBody.UseUnityPhysics = UseUnityPhysics;
-
-        Rigidbody rb = body.GetComponent<Rigidbody>();
-
-        if(UseUnityPhysics) {
-            if(rb == null) {
-                rb = body.AddComponent<Rigidbody>();
-            }
-            rb.mass = mass;
-            rb.useGravity = false;
-            rb.velocity = velocity;
-        } else {
-            if(rb != null) {
-                DestroyImmediate(rb);
-            }
-            celestialBody._velocity = velocity;
-        }
-
-        celestialBody.transform.position = position;
-        celestialBody._position = position;
-
-        return body;
-    }
+    //    return positionsDict.ToDictionary(pair => pair.Key, pair => pair.Value.Item1);
+    //}
 
     public void GenerateRandomBodies() {
-        GameObject parent = new GameObject("Celestial Bodies");
-        GameObject centerBody = null;
+        CelestialBody centerBody = null;
         if(GenerateCenterBody) {
-            centerBody = CreateBodyFromObject(gameObject, Vector3.zero, Vector3.zero, UnityEngine.Random.Range(CenterMassRange.x, CenterMassRange.y));
-            centerBody.transform.SetParent(parent.transform);
+            centerBody = new Star(Vector3.zero, Vector3.zero, UnityEngine.Random.Range(CenterMassRange.x, CenterMassRange.y), material);
+            //centerBody = CreateBodyFromObject(gameObject, Vector3.zero, Vector3.zero, UnityEngine.Random.Range(CenterMassRange.x, CenterMassRange.y));
+            //centerBody.transform.SetParent(parent.transform);
         }
 
         float radiusX = spawnBounds.x;
@@ -133,7 +110,7 @@ public class CelestialBodyManager : MonoBehaviour {
             switch(initialVelocityType) {
                 case InitialVelocityType.Orbital:
                     if(GenerateCenterBody) {
-                        velocity = GetOrbitalVelocity(position, centerBody.transform.position, centerBody.GetComponent<CelestialBody>()._mass);
+                        velocity = GetOrbitalVelocity(position, centerBody.Position, centerBody.Mass);
                     } else {
                         float avgMass = (massRange.x + massRange.y) / 2 * generationCount / 2;
                         velocity = GetOrbitalVelocity(position, Vector3.zero, avgMass);
@@ -143,7 +120,8 @@ public class CelestialBodyManager : MonoBehaviour {
                     velocity = Vector3.zero;
                     break;
             }
-            CreateBodyFromObject(gameObject, position, velocity, mass).transform.SetParent(parent.transform);
+
+            new Star(position, velocity, mass, material);
         }
     }
 
@@ -181,13 +159,10 @@ public class CelestialBodyManager : MonoBehaviour {
                 i--;
                 continue;
             }
-            if(positionsDict.TryGetValue(celestialBodies[i], out var lists)) {
-                celestialBodyData[i].position = lists.Item1.Last();
-                celestialBodyData[i].velocity = lists.Item2.Last();
-            } else {
-                celestialBodyData[i].position = celestialBodies[i].ObjTransform.position;
-                celestialBodyData[i].velocity = celestialBodies[i].Velocity;
-            }
+
+            celestialBodyData[i].position = celestialBodies[i].Position;
+            celestialBodyData[i].velocity = celestialBodies[i].Velocity;
+
             celestialBodyData[i].mass = celestialBodies[i]._mass;
             celestialBodyData[i].radius = celestialBodies[i]._radius;
         }
@@ -220,6 +195,7 @@ public class CelestialBodyManager : MonoBehaviour {
     private List<(CelestialBody, CelestialBody, float)> DispatchComputeShader(bool simulate = false) {
         if(celestialBodies.Count == 0) return new List<(CelestialBody, CelestialBody, float)>();
 
+        matrices = new List<Matrix4x4>();
 
         // Update buffer data
         bool hasDataChanged = false;
@@ -230,8 +206,8 @@ public class CelestialBodyManager : MonoBehaviour {
                 continue;
             }
 
-            Vector3 newPosition = positionsDict.ContainsKey(celestialBodies[i]) ? positionsDict[celestialBodies[i]].Item1.Last() : celestialBodies[i].ObjTransform.position;
-            Vector3 newVelocity = positionsDict.ContainsKey(celestialBodies[i]) ? positionsDict[celestialBodies[i]].Item2.Last() : celestialBodies[i].Velocity;
+            Vector3 newPosition = celestialBodies[i].Position;
+            Vector3 newVelocity = celestialBodies[i].Velocity;
 
             if(celestialBodyData[i].position != newPosition
                 || celestialBodyData[i].velocity != newVelocity
@@ -245,6 +221,7 @@ public class CelestialBodyManager : MonoBehaviour {
                 hasDataChanged = true;
             }
 
+            matrices.Add(celestialBodies[i].matrix);
         }
 
         if(hasDataChanged) {
@@ -269,7 +246,7 @@ public class CelestialBodyManager : MonoBehaviour {
         collisionCountBuffer.GetData(collisionCount);
         int numCollisions = collisionCount[0];
 
-        if(!UseUnityPhysics && numCollisions > 0 && !simulate) {
+        if(numCollisions > 0 && !simulate) {
             collisionsBuffer.GetData(collisions);
             // Store collided bodies to prevent multiple collisions
             List<CelestialBody> collidedBodies = new List<CelestialBody>();
@@ -315,6 +292,8 @@ public class CelestialBodyManager : MonoBehaviour {
             GenerateRandomBodies();
         }
 
+        renderParams = new RenderParams(material);
+
         bufferCapacity = celestialBodies.Count;
         InitializeBuffers();
     }
@@ -332,56 +311,51 @@ public class CelestialBodyManager : MonoBehaviour {
         for(int i = 0; i < celestialBodies.Count; i++) {
             CelestialBody body = celestialBodies[i];
 
-            if(UseUnityPhysics) {
-                if(body.ObjRigidbody != null) {
-                    body.ObjRigidbody.AddForce(celestialBodyData[i].force);
-                }
-                body._velocity = body.ObjRigidbody.velocity;
-            } else {
-                if(body.ObjTransform.hasChanged || celestialBodyData[i].position != body._position) {
-                    body.ObjTransform.position = celestialBodyData[i].position;
-                    body._position = celestialBodyData[i].position;
-                    body._velocity = celestialBodyData[i].velocity;
-                }
-            }
+            body.Position = celestialBodyData[i].position;
+            body._velocity = celestialBodyData[i].velocity;
         }
     }
 
-    private void OnValidate() {
-        foreach(CelestialBody celestialBody in celestialBodies) {
-            if(!positionsDict.ContainsKey(celestialBody)) return;
-            positionsDict[celestialBody].Item1.Clear();
-            positionsDict[celestialBody].Item2.Clear();
-        }
+    //private void OnValidate() {
+    //    foreach(CelestialBody celestialBody in celestialBodies) {
+    //        if(!positionsDict.ContainsKey(celestialBody)) return;
+    //        positionsDict[celestialBody].Item1.Clear();
+    //        positionsDict[celestialBody].Item2.Clear();
+    //    }
+    //}
+
+    public void Update() {
+        if (celestialBodies.Count == 0) return;
+        Graphics.RenderMeshInstanced(renderParams, mesh, 0, matrices);
+        //foreach(var body in celestialBodies) {
+            //Graphics.RenderMesh(new RenderParams(body.Material), mesh, 0, body.matrix);
+        //}
     }
 
     private void FixedUpdate() {
         if(!Application.isPlaying) return;
-        Time.timeScale = TimeScale;
 
+        //if(UseUnityPhysics) {
+        //    DispatchComputeShader();
+        //    SetPositions();
+        //    return;
+        //}
 
-        if(UseUnityPhysics) {
-            DispatchComputeShader();
-            SetPositions();
-            return;
-        }
+        //if(positionsDict.Count > 0 && positionsDict[celestialBodies[0]].Item1.Count > 0) {
+        //    foreach(var body in celestialBodies) {
+        //        var bodyPositions = positionsDict[body].Item1;
+        //        var bodyVelocities = positionsDict[body].Item2;
 
-        if(positionsDict.Count > 0 && positionsDict[celestialBodies[0]].Item1.Count > 0) {
-            foreach(var body in celestialBodies) {
-                var bodyPositions = positionsDict[body].Item1;
-                var bodyVelocities = positionsDict[body].Item2;
+        //        if(bodyPositions.Count > 0) {
+        //            body.Position = bodyPositions[0];
+        //            body._velocity = bodyVelocities[0];
 
-                if(bodyPositions.Count > 0) {
-                    body.ObjTransform.position = bodyPositions[0];
-                    body._position = bodyPositions[0];
-                    body._velocity = bodyVelocities[0];
-
-                    bodyPositions.RemoveAt(0);
-                    bodyVelocities.RemoveAt(0);
-                }
-            }
-            return;
-        }
+        //            bodyPositions.RemoveAt(0);
+        //            bodyVelocities.RemoveAt(0);
+        //        }
+        //    }
+        //    return;
+        //}
 
         InitializeBuffers();
         var collisions = DispatchComputeShader();
@@ -416,7 +390,7 @@ public class CelestialBodyManager : MonoBehaviour {
 
         public CelestialBodyDate Create(CelestialBody body) {
             return new CelestialBodyDate {
-                position = body.ObjTransform.position,
+                position = body.Position,
                 velocity = body.Velocity,
                 mass = body.Mass,
                 radius = body.Radius,
@@ -425,14 +399,13 @@ public class CelestialBodyManager : MonoBehaviour {
         }
 
         public void Apply(CelestialBody body) {
-            body.ObjTransform.position = position;
-            body._position = position;
+            body.Position = position;
             body._velocity = velocity;
             body._radius = radius;
             body._mass = mass;
-            if(body.ObjRigidbody != null) {
-                body.ObjRigidbody.AddForce(force);
-            }
+            //if(body.ObjRigidbody != null) {
+            //    body.ObjRigidbody.AddForce(force);
+            //}
         }
 
         public static int GetBufferLength() {

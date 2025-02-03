@@ -1,22 +1,43 @@
-using System.Linq;
 using UnityEngine;
 using UnityEngine.Events;
-using UnityEngine.Experimental.GlobalIllumination;
 
 
 [ExecuteInEditMode]
-public abstract class CelestialBody : MonoBehaviour {
+public class CelestialBody {
     // Dont change theses values directly, use the properties instead
     // Unless you don't want the changes run the OnPropertyChange method
-    [SerializeField] public float _radius;
-    [SerializeField] public float _radiusMultiplier = 1.0f;
-    [SerializeField] public float _mass;
-    [SerializeField] public Vector3 _velocity;
-    [SerializeField] public bool UseUnityPhysics = false;
+    public float _radius;
+    public float _mass;
+    public Vector3 _velocity;
+    //[SerializeField] public bool UseUnityPhysics = false;
 
-    [SerializeField] public Transform ObjTransform;
-    [SerializeField] public Rigidbody ObjRigidbody;
+    private Vector3 _position = Vector3.zero;
+    public Vector3 Position {
+        get {
+            return _position;
+        }
+        set {
+            _position = value;
+            matrix.SetTRS(Position, Quaternion.identity, Vector3.one * _radius * 1.5f);
+        }
+    }
 
+    public Material Material;
+
+    internal Matrix4x4 matrix = Matrix4x4.identity;
+
+    public CelestialBody(Vector3 position, Vector3 velocity, float mass, Material material) {
+        Position = position;
+        Material = new Material(material);
+        _mass = mass;
+        _velocity = velocity;
+        _radius = 4 / 3.0f * Mathf.PI * Mathf.Pow(_mass, 1.0f / 3.0f) / 3.0f;
+        matrix.SetTRS(Position, Quaternion.identity, Vector3.one * _radius * 1.5f);
+
+        CelestialBodyManager.instance.celestialBodies.Add(this);
+
+        OnStart();
+    }
     public float Radius {
         get => _radius;
         set {
@@ -25,21 +46,20 @@ public abstract class CelestialBody : MonoBehaviour {
         }
     }
 
-    public float RadiusMultiplier {
-        get => _radiusMultiplier;
-        set {
-            _radiusMultiplier = value;
-            OnPropertyChange();
-        }
-    }
+    //public float RadiusMultiplier {
+    //    get => _radiusMultiplier;
+    //    set {
+    //        _radiusMultiplier = value;
+    //        matrix = Matrix4x4.TRS(Position, Quaternion.identity, Vector3.one * _radius);
+    //        //OnPropertyChange();
+    //    }
+    //}
 
     public float Mass {
         get {
-            if(UseUnityPhysics) return ObjRigidbody.mass;
             return _mass;
         }
         set {
-            if(UseUnityPhysics) ObjRigidbody.mass = value;
             _mass = value;
             OnPropertyChange();
         }
@@ -47,63 +67,45 @@ public abstract class CelestialBody : MonoBehaviour {
 
     public Vector3 Velocity {
         get {
-            if(UseUnityPhysics) return ObjRigidbody.velocity;
             return _velocity;
         }
         set {
-            if(UseUnityPhysics) ObjRigidbody.velocity = value;
             _velocity = value;
             OnPropertyChange();
         }
     }
-
-    internal Vector3 _position;
 
     public UnityEvent OnEnabledEvent = new UnityEvent();
     public UnityEvent OnDisabledEvent = new UnityEvent();
     public UnityEvent OnUpdateEvent = new UnityEvent();
     public UnityEvent OnChangeEvent = new UnityEvent();
 
-    private void Awake() {
-        ObjTransform = transform;
-        ObjRigidbody = GetComponent<Rigidbody>();
-    }
+    //private void OnEnable() {
+    //    if(CelestialBodyManager.instance != null && !CelestialBodyManager.instance.celestialBodies.Contains(this)) CelestialBodyManager.instance.celestialBodies.Add(this);
+    //    OnEnabled();
+    //    OnEnabledEvent.Invoke();
+    //}
 
-    private void Start() {
-        _position = transform.position;
-        _radius = 4 / 3.0f * Mathf.PI * Mathf.Pow(_mass, 1.0f / 3.0f) / 3.0f * _radiusMultiplier;
-        ObjTransform.localScale = new Vector3(_radius * 2, _radius * 2, _radius * 2);
+    //private void OnValidate() {
+    //    OnPropertyChange();
+    //}
 
+    //private void OnDisable() {
+    //    if(CelestialBodyManager.instance != null && CelestialBodyManager.instance.celestialBodies.Contains(this)) CelestialBodyManager.instance.celestialBodies.Remove(this);
+    //    OnDisabled();
+    //    OnDisabledEvent.Invoke();
+    //}
 
-        OnStart();
-    }
-
-    private void OnEnable() {
-        if(CelestialBodyManager.instance != null && !CelestialBodyManager.instance.celestialBodies.Contains(this)) CelestialBodyManager.instance.celestialBodies.Add(this);
-        OnEnabled();
-        OnEnabledEvent.Invoke();
-    }
-
-    private void OnValidate() {
-        OnPropertyChange();
-    }
-
-    private void OnDisable() {
-        if(CelestialBodyManager.instance != null && CelestialBodyManager.instance.celestialBodies.Contains(this)) CelestialBodyManager.instance.celestialBodies.Remove(this);
-        OnDisabled();
-        OnDisabledEvent.Invoke();
-    }
-
-    void Update() {
-        if(ObjTransform.position != _position) {
-            _position = transform.position;
-            OnPropertyChange();
-        }
-    }
+    //void Update() {
+    //    if(ObjTransform.position != _position) {
+    //        _position = transform.position;
+    //        OnPropertyChange();
+    //    }
+    //}
 
     public void OnPropertyChange() {
-        _radius = 4 / 3.0f * Mathf.PI * Mathf.Pow(_mass, 1.0f / 3.0f) / 3.0f * _radiusMultiplier;
-        ObjTransform.localScale = new Vector3(_radius * 2, _radius * 2, _radius * 2);
+        _radius = 4 / 3.0f * Mathf.PI * Mathf.Pow(_mass, 1.0f / 3.0f) / 3.0f;
+        matrix.SetTRS(Position, Quaternion.identity, Vector3.one * _radius * 1.5f);
 
         OnChange();
         OnChangeEvent.Invoke();
@@ -116,14 +118,11 @@ public abstract class CelestialBody : MonoBehaviour {
 
             if(_mass >= otherBody._mass) {
                 // Absorb the smaller body
-                _mass = totalMass;
+                Mass = totalMass;
                 _velocity = combinedMomentum / _mass; // Conservation of momentum
-                Destroy(otherBody.gameObject);
+                CelestialBodyManager.instance.celestialBodies.Remove(otherBody);
             } else {
-                // The other body absorbs this one
-                otherBody._mass = totalMass;
-                otherBody._velocity = combinedMomentum / otherBody._mass; // Conservation of momentum
-                Destroy(gameObject);
+                otherBody.OnCollision(this, penetration);
             }
         }
     }

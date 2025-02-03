@@ -439,19 +439,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1e76f0b060f83e944bd12191ed35a024, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  celestialBodies: []
   TimeScale: 1
-  GravitationalConstant: 10
-  UseUnityPhysics: 1
+  GravitationalConstant: 7
   useRandomGeneration: 1
-  generationCount: 5000
+  generationCount: 20000
   CelestialBodyPrefab: {fileID: 6040419496618378775, guid: 691334eea9ea6c641912124770a10833, type: 3}
-  spawnBounds: {x: 2000, y: 2000, z: 2000}
-  massRange: {x: 50, y: 50}
-  GenerateCenterBody: 0
-  CenterMassRange: {x: 10000, y: 1000000}
+  spawnBounds: {x: 10000, y: 500, z: 10000}
+  massRange: {x: 10, y: 100}
+  GenerateCenterBody: 1
+  CenterMassRange: {x: 10000, y: 100000}
   initialVelocityType: 0
+  material: {fileID: 2100000, guid: cf0e0d27cc2829d40ab8aa198adb4299, type: 2}
   nBodyComputeShader: {fileID: 7200000, guid: 576c144dca0821c4da237175790ffe07, type: 3}
+  mesh: {fileID: 10207, guid: 0000000000000000e000000000000000, type: 0}
 --- !u!4 &1236632377
 Transform:
   m_ObjectHideFlags: 0
