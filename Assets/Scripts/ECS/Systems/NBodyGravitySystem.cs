@@ -1,10 +1,15 @@
-﻿using Unity.Entities;
+﻿using Unity.Burst;
+using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Transforms;
 
-//[BurstCompile]
+[BurstCompile]
 public partial struct NBodyGravitySystem : ISystem {
-    //[BurstCompile]
+    public void OnCreate(ref SystemState state) {
+        state.RequireForUpdate<NBodyConfig>();
+    }
+
+    [BurstCompile]
     public void OnUpdate(ref SystemState state) {
         NBodyConfig config = SystemAPI.GetSingleton<NBodyConfig>();
 
