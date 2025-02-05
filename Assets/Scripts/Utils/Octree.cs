@@ -5,54 +5,124 @@ using Unity.Mathematics;
 using UnityEngine;
 
 [BurstCompile]
+public struct Octant {
+    public float3 Center;
+    public float Size;
+
+    public Octant(float3 center, float size) {
+        Center = center;
+        Size = size;
+    }
+
+    [BurstCompile]
+    public static void NewContaining(in NativeArray<BodyData> bodyData, out Octant bounds) {
+        if(bodyData.Length == 0)
+            bounds = new Octant(Vector3.zero, 0);
+
+        float3 min = new float3(float.MaxValue);
+        float3 max = new float3(float.MinValue);
+
+        for(int i = 0; i < bodyData.Length; i++) {
+            min = math.min(min, bodyData[i].Position);
+            max = math.max(max, bodyData[i].Position);
+        }
+
+        float3 center = (min + max) * 0.5f;
+        float size = math.cmax(max - min);
+
+        bounds = new Octant(center, size);
+    }
+
+    [BurstCompile]
+    public void IntoOctants(out NativeArray<Octant> octants) {
+        octants = new NativeArray<Octant>(8, Allocator.Temp);
+
+        float3 center = Center;
+        float3 extents = new float3(Size * 0.5f);  // New half-size for each octant.
+
+        for(int i = 0; i < 8; i++) {
+            float3 offset = new float3(
+                (i & 1) == 0 ? -extents.x : extents.x,
+                (i & 2) == 0 ? -extents.y : extents.y,
+                (i & 4) == 0 ? -extents.z : extents.z
+            );
+            octants[i] = new Octant(center + offset, Size * 0.5f);
+        }
+    }
+
+    /// <summary>
+    /// Determines which octant of this node's bounds contains the given position.
+    /// </summary>
+    [BurstCompile]
+    public int FindOctant(float3 position) {
+        int index = 0;
+        if(position.x > Center.x)
+            index |= 1;
+        if(position.y > Center.y)
+            index |= 2;
+        if(position.z > Center.z)
+            index |= 4;
+        return index;
+
+    }
+}
+
+[BurstCompile]
 public struct Octree : IDisposable {
     public NativeList<OctreeNode> Nodes;
     public NativeList<int> Parents;
-    public Allocator Allocator;
+    public bool IsCreated => Nodes.IsCreated && Parents.IsCreated;
 
-    public Octree(Allocator allocator) {
+    private float thetaSquared;
+    private float epsilonSquared;
+    private float gravitationalConstant;
+
+    public Octree(float theta, float epsilon, float gravitationalConstant, Allocator allocator) {
+        thetaSquared = theta * theta;
+        epsilonSquared = epsilon * epsilon;
+
         Nodes = new NativeList<OctreeNode>(allocator);
         Parents = new NativeList<int>(allocator);
-        Allocator = allocator;
+        this.gravitationalConstant = gravitationalConstant;
     }
 
     [BurstCompile]
-    public void Clear(Bounds newBounds) {
+    public void Clear(Octant newOctant) {
         Nodes.Clear();
         Parents.Clear();
 
-        Nodes.Add(new OctreeNode(0, newBounds));
+        Nodes.Add(new OctreeNode(0, newOctant));
     }
 
+    // Replace the foreach loop in the Propagate method with the following code
     [BurstCompile]
     public void Propagate() {
         // Go through the nodes in reverse order and propagate values up the tree.
-        for(int i = Nodes.Length - 1; i >= 0; i--) {
-            if(Nodes[i].IsLeaf()) continue;
+        for(int i = Parents.Length - 1; i >= 0; i--) {
+            int nodeIndex = Parents[i];
+            int childIndex = Nodes[nodeIndex].Children;
 
-            int children = Nodes[i].Children;
+            OctreeNode node = Nodes[nodeIndex];
+            node.Position = Nodes[childIndex].Position * Nodes[childIndex].Mass
+                + Nodes[childIndex + 1].Position * Nodes[childIndex + 1].Mass
+                + Nodes[childIndex + 2].Position * Nodes[childIndex + 2].Mass
+                + Nodes[childIndex + 3].Position * Nodes[childIndex + 3].Mass
+                + Nodes[childIndex + 4].Position * Nodes[childIndex + 4].Mass
+                + Nodes[childIndex + 5].Position * Nodes[childIndex + 5].Mass
+                + Nodes[childIndex + 6].Position * Nodes[childIndex + 6].Mass
+                + Nodes[childIndex + 7].Position * Nodes[childIndex + 7].Mass;
 
-            OctreeNode node = Nodes[i];
-            node.Position = Nodes[children].Position * Nodes[children].Mass
-                + Nodes[children + 1].Position * Nodes[children + 1].Mass
-                + Nodes[children + 2].Position * Nodes[children + 2].Mass
-                + Nodes[children + 3].Position * Nodes[children + 3].Mass
-                + Nodes[children + 4].Position * Nodes[children + 4].Mass
-                + Nodes[children + 5].Position * Nodes[children + 5].Mass
-                + Nodes[children + 6].Position * Nodes[children + 6].Mass
-                + Nodes[children + 7].Position * Nodes[children + 7].Mass;
-
-            node.Mass = Nodes[children].Mass
-                + Nodes[children + 1].Mass
-                + Nodes[children + 2].Mass
-                + Nodes[children + 3].Mass
-                + Nodes[children + 4].Mass
-                + Nodes[children + 5].Mass
-                + Nodes[children + 6].Mass
-                + Nodes[children + 7].Mass;
+            node.Mass = Nodes[childIndex].Mass
+                + Nodes[childIndex + 1].Mass
+                + Nodes[childIndex + 2].Mass
+                + Nodes[childIndex + 3].Mass
+                + Nodes[childIndex + 4].Mass
+                + Nodes[childIndex + 5].Mass
+                + Nodes[childIndex + 6].Mass
+                + Nodes[childIndex + 7].Mass;
 
             node.Position /= node.Mass;
-            Nodes[i] = node;
+            Nodes[nodeIndex] = node;
         }
     }
 
@@ -60,8 +130,8 @@ public struct Octree : IDisposable {
     public void Insert(in BodyData body) {
         int nodeIndex = 0;
 
-        while (Nodes[nodeIndex].IsBranch()) {
-            int quadrant = Nodes[nodeIndex].FindOctant(body.Position);
+        while(Nodes[nodeIndex].IsBranch()) {
+            int quadrant = Nodes[nodeIndex].Octant.FindOctant(body.Position);
             nodeIndex = Nodes[nodeIndex].Children + quadrant;
         }
 
@@ -85,8 +155,8 @@ public struct Octree : IDisposable {
         while(true) {
             int children = Subdivide(nodeIndex);
 
-            int octant1 = Nodes[nodeIndex].FindOctant(existingPos);
-            int octant2 = Nodes[nodeIndex].FindOctant(body.Position);
+            int octant1 = Nodes[nodeIndex].Octant.FindOctant(existingPos);
+            int octant2 = Nodes[nodeIndex].Octant.FindOctant(body.Position);
 
             if(octant1 == octant2) {
                 nodeIndex = children + octant1;
@@ -112,44 +182,51 @@ public struct Octree : IDisposable {
     [BurstCompile]
     public int Subdivide(int nodeIndex) {
         Parents.Add(nodeIndex);
-        int childrenCount = Nodes.Length;
+        int childrenStartIndex = Nodes.Length;
 
         OctreeNode node = Nodes[nodeIndex];
-        node.Children = childrenCount;
+        node.Children = childrenStartIndex;
         Nodes[nodeIndex] = node;
 
-        var nexts = new NativeList<int>(8, Allocator.Temp);
+        var nexts = new NativeArray<int>(8, Allocator.Temp);
         for(int i = 0; i < 7; i++) {
-            nexts.Add(childrenCount + i);
+            nexts[i] = childrenStartIndex + i + 1;
         }
-        nexts.Add(node.Next);
+        nexts[7] = node.Next;
 
-        node.IntoOctants(out NativeArray<Bounds> octants);
+        node.Octant.IntoOctants(out NativeArray<Octant> octants);
+
         for(int i = 0; i < 8; i++) {
             Nodes.Add(new OctreeNode(nexts[i], octants[i]));
         }
 
-        return childrenCount;
+        return childrenStartIndex;
     }
 
-
     [BurstCompile]
-    public static void NewContaining(in NativeArray<BodyData> bodyData, out Bounds bounds) {
-        if(bodyData.Length == 0)
-            bounds = new Bounds(Vector3.zero, Vector3.zero);
+    public float3 CalculateAcceleration(float3 position) {
+        float3 acceleration = new float3(0, 0, 0);
 
-        float3 min = new float3(float.MaxValue);
-        float3 max = new float3(float.MinValue);
+        int node = 0;
+        while(true) {
+            OctreeNode n = Nodes[node];
 
-        for(int i = 0; i < bodyData.Length; i++) {
-            min = math.min(min, bodyData[i].Position);
-            max = math.max(max, bodyData[i].Position);
+            float3 direction = n.Position - position;
+            float distanceSquared = math.lengthsq(direction);
+            float distance = math.sqrt(distanceSquared);
+
+            if(n.IsLeaf() || ((n.Octant.Size / distance) < thetaSquared)) {
+                var denominator = (distanceSquared + epsilonSquared) * distance;
+                acceleration += direction * (gravitationalConstant * n.Mass / (denominator + 0.001f));
+
+                if(n.Next == 0) break;
+                node = n.Next;
+            } else {
+                node = n.Children;
+            }
         }
 
-        float3 center = (min + max) * 0.5f;
-        float3 size = max - min;
-
-        bounds = new Bounds(center, size);
+        return acceleration;
     }
 
     [BurstCompile]
@@ -164,7 +241,7 @@ public struct OctreeNode {
     // Stores indices to child nodes if subdivided.
     public int Children;
     public int Next;
-    public Bounds Bounds;
+    public Octant Octant;
 
     // Additional data for a leaf node.
     public float3 Position;  // Position of the body stored in this leaf.
@@ -173,10 +250,10 @@ public struct OctreeNode {
     public float Mass;
     public float3 CenterOfMass;
 
-    public OctreeNode(int next, Bounds bounds) {
+    public OctreeNode(int next, Octant bounds) {
         Children = 0;
         Next = next;
-        Bounds = bounds;
+        Octant = bounds;
 
         Position = float3.zero;
 
@@ -206,40 +283,5 @@ public struct OctreeNode {
     [BurstCompile]
     public bool IsEmpty() {
         return Mass == 0;
-    }
-
-    /// <summary>
-    /// Splits this node's bounds into 8 octants.
-    /// </summary>
-    [BurstCompile]
-    public void IntoOctants(out NativeArray<Bounds> octants) {
-        octants = new NativeArray<Bounds>(8, Allocator.Temp);
-
-        Vector3 center = Bounds.center;
-        Vector3 extents = Bounds.extents * 0.5f;  // New half-size for each octant.
-
-        for(int i = 0; i < 8; i++) {
-            Vector3 offset = new Vector3(
-                (i & 1) == 0 ? -extents.x : extents.x,
-                (i & 2) == 0 ? -extents.y : extents.y,
-                (i & 4) == 0 ? -extents.z : extents.z
-            );
-            octants[i] = new Bounds(center + offset, extents * 2);
-        }
-    }
-
-    /// <summary>
-    /// Determines which octant of this node's bounds contains the given position.
-    /// </summary>
-    [BurstCompile]
-    public int FindOctant(float3 position) {
-        int index = 0;
-        if(position.x > Bounds.center.x)
-            index |= 1;
-        if(position.y > Bounds.center.y)
-            index |= 2;
-        if(position.z > Bounds.center.z)
-            index |= 4;
-        return index;
     }
 }

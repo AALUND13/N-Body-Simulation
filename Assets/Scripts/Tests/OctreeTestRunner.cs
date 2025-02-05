@@ -22,7 +22,7 @@ public class OctreeTestRunner : MonoBehaviour {
 
             Debug.Log("All Octree tests passed!");
         } catch(Exception ex) {
-            Debug.LogError("Octree test failed: " + ex.Message);
+            Debug.LogError("Octree test failed: " + ex);
         }
     }
 
@@ -35,27 +35,27 @@ public class OctreeTestRunner : MonoBehaviour {
         bodies[2] = new BodyData { Position = new float3(-10, -10, -10), Mass = 3f };
 
         // Use your Octree.NewContaining method.
-        Octree.NewContaining(bodies, out Bounds bounds);
+        Octant.NewContaining(bodies, out Octant octant);
 
         // Expected center and size.
-        Vector3 expectedCenter = new Vector3(0, 0, 0);
-        Vector3 expectedSize = new Vector3(20, 20, 20);
+        float3 expectedCenter = new float3(0, 0, 0);
+        float expectedSize = 20;
 
-        if(bounds.center != expectedCenter)
-            throw new Exception($"TestNewContaining: Expected center {expectedCenter}, got {bounds.center}");
-        if(bounds.size != expectedSize)
-            throw new Exception($"TestNewContaining: Expected size {expectedSize}, got {bounds.size}");
+        if(Float3Equal(octant.Center, expectedCenter) == false)
+            throw new Exception($"TestNewContaining: Expected center {expectedCenter}, got {octant.Center}");
+        if(octant.Size != expectedSize)
+            throw new Exception($"TestNewContaining: Expected size {expectedSize}, got {octant.Size}");
 
         bodies.Dispose();
     }
 
     // Test inserting a single body into an otherwise empty octree.
     void TestInsertSingleBody() {
-        Octree tree = new Octree(Allocator.Temp);
+        Octree tree = new Octree(1, 1, 1, Allocator.Temp);
 
         // Create a root node with a bounding box.
-        Bounds bounds = new Bounds(Vector3.zero, new Vector3(100, 100, 100));
-        tree.Clear(bounds);
+        Octant octant = new Octant(Vector3.zero, 100);
+        tree.Clear(octant);
 
         BodyData body = new BodyData { Position = new float3(10, 10, 10), Mass = 5f };
         tree.Insert(body);
@@ -71,9 +71,9 @@ public class OctreeTestRunner : MonoBehaviour {
 
     // Test inserting two bodies and propagating the aggregated mass and center-of-mass.
     void TestInsertTwoBodiesAndPropagate() {
-        Octree tree = new Octree(Allocator.Temp);
-        Bounds bounds = new Bounds(Vector3.zero, new Vector3(100, 100, 100));
-        tree.Clear(bounds);
+        Octree tree = new Octree(1, 1, 1, Allocator.Temp);
+        Octant octant = new Octant(Vector3.zero, 100);
+        tree.Clear(octant);
 
         BodyData body1 = new BodyData { Position = new float3(10, 10, 10), Mass = 5f };
         BodyData body2 = new BodyData { Position = new float3(-10, -10, -10), Mass = 3f };
@@ -96,17 +96,17 @@ public class OctreeTestRunner : MonoBehaviour {
 
     // Test the FindQuadrant function of an OctreeNode.
     void TestFindQuadrant() {
-        Bounds bounds = new Bounds(new Vector3(0, 0, 0), new Vector3(10, 10, 10));
-        OctreeNode node = new OctreeNode(0, bounds);
+        Octant octant = new Octant(new Vector3(0, 0, 0), 1);
+        OctreeNode node = new OctreeNode(0, octant);
 
         // In a standard octree, for a node centered at (0,0,0) and with extents 5,
         // a point (1,1,1) should fall in the quadrant with index 7 (binary 111).
-        int quadrant = node.FindOctant(new float3(1, 1, 1));
+        int quadrant = node.Octant.FindOctant(new float3(1, 1, 1));
         if(quadrant != 7)
             throw new Exception($"TestFindQuadrant: Expected quadrant 7 for (1,1,1), got {quadrant}");
 
         // Similarly, (-1,-1,-1) should be in quadrant 0.
-        quadrant = node.FindOctant(new float3(-1, -1, -1));
+        quadrant = node.Octant.FindOctant(new float3(-1, -1, -1));
         if(quadrant != 0)
             throw new Exception($"TestFindQuadrant: Expected quadrant 0 for (-1,-1,-1), got {quadrant}");
     }

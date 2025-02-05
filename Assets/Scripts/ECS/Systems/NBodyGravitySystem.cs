@@ -6,22 +6,28 @@ using Unity.Transforms;
 
 [BurstCompile]
 public partial struct NBodyGravitySystem : ISystem {
+    private Octree octree;
+
     public void OnCreate(ref SystemState state) {
         state.RequireForUpdate<NBodyConfig>();
     }
 
+    public void OnDestroy(ref SystemState state) {
+        if(octree.IsCreated)
+            octree.Dispose();
+    }
+
     [BurstCompile]
     public void OnUpdate(ref SystemState state) {
-        // Build a query for the needed components using QueryBuilder.
+        NBodyConfig config = SystemAPI.GetSingleton<NBodyConfig>();
+
+        if(!octree.IsCreated)
+            octree = new Octree(config.Theta, config.Epsilon, config.G, Allocator.Persistent);
+
         var query = SystemAPI.QueryBuilder().WithAll<CelestialBodyComponent, LocalTransform>().Build();
-
-        // Get an array of matching entities so we know how many there are.
         NativeArray<Entity> entities = query.ToEntityArray(Allocator.Temp);
-
-        // Allocate a NativeArray to hold our body data.
         NativeArray<BodyData> bodyData = new NativeArray<BodyData>(entities.Length, Allocator.TempJob);
 
-        // Populate the bodyData array by iterating over the query.
         int index = 0;
         foreach(var (celestialBody, localTransform) in SystemAPI.Query<RefRO<CelestialBodyComponent>, RefRO<LocalTransform>>()) {
             bodyData[index] = new BodyData {
@@ -31,44 +37,38 @@ public partial struct NBodyGravitySystem : ISystem {
             index++;
         }
 
-        // Schedule the gravity job with the populated NativeArray.
+        Octant.NewContaining(bodyData, out Octant bounds);
+        octree.Clear(bounds);
+
+        for(int i = 0; i < bodyData.Length; i++) {
+            octree.Insert(bodyData[i]);
+        }
+
+        octree.Propagate();
+
         new BodyGravityJob {
             DeltaTime = SystemAPI.Time.DeltaTime,
-            Config = SystemAPI.GetSingleton<NBodyConfig>(),
-            Bodies = bodyData
+            Config = config,
+            Octree = octree
         }.ScheduleParallel();
 
-        // Dispose of the temporary NativeArray after the job completes.
-        state.Dependency = bodyData.Dispose(state.Dependency);
+        bodyData.Dispose(state.Dependency);
     }
 
     [BurstCompile]
     private partial struct BodyGravityJob : IJobEntity {
         [ReadOnly] public float DeltaTime;
         [ReadOnly] public NBodyConfig Config;
-        [ReadOnly] public NativeArray<BodyData> Bodies;
+        [ReadOnly] public Octree Octree;
 
         [BurstCompile]
         public void Execute(ref LocalTransform transform, ref CelestialBodyComponent body) {
-            float3 force = float3.zero;
-            for(int i = 0; i < Bodies.Length; i++) {
-                BodyData otherBody = Bodies[i];
-                // Skip self by comparing positions.
-                if(transform.Position.Equals(otherBody.Position))
-                    continue;
+            float3 acceleration = Octree.CalculateAcceleration(transform.Position);
 
-                float3 direction = otherBody.Position - transform.Position;
-                float distanceSquared = math.lengthsq(direction) + 0.01f; // Avoid division by zero.
-                float3 unitMagnitude = math.normalize(direction);
-                float forceMagnitude = Config.G * body.Mass * otherBody.Mass / distanceSquared;
-                force += forceMagnitude * unitMagnitude;
-            }
-
-            body.Velocity += force / body.Mass * DeltaTime;
+            body.Velocity += acceleration * DeltaTime;
             transform.Position += body.Velocity * DeltaTime;
         }
     }
-
 }
 
 public struct BodyData {

@@ -135,7 +135,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &112791990
 Transform:
   m_ObjectHideFlags: 0
@@ -163,7 +163,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 39e32491a09a83745a9f31c112cd080e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  Count: 2000
+  Count: 5
   Seed: 1
   SpawningBounds:
     m_Center: {x: 0, y: 0, z: 0}
