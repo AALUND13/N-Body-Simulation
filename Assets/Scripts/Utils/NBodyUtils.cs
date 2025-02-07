@@ -42,22 +42,31 @@ public static class NBodyUtils {
         );
     }
 
-    public static NativeArray<float3> GetRandomPositionInSphere(Bounds bounds, uint seed, int count) {
+    public static NativeArray<float3> GetRandomPositionInSphere(Bounds bounds, float minRange, uint seed, int count) {
         float radiusX = bounds.size.x / 2f;
         float radiusY = bounds.size.y / 2f;
         float radiusZ = bounds.size.z / 2f;
         Unity.Mathematics.Random random = new Unity.Mathematics.Random(seed);
         NativeArray<float3> positions = new NativeArray<float3>(count, Allocator.Temp);
-        for(int i = 0; i < count; i++) {
+
+        int i = 0;
+        while(i < count) {
             float theta = random.NextFloat(0, 2 * math.PI);
             float phi = math.acos(random.NextFloat(-1, 1));
-            float r = math.pow(random.NextFloat(), 1f / 3f);
-            positions[i] = new float3(
+            float r = math.pow(random.NextFloat(0f, 1f), 1f / 3f);
+
+            float3 candidate = new float3(
                 math.sin(phi) * math.cos(theta) * radiusX * r,
                 math.sin(phi) * math.sin(theta) * radiusY * r,
                 math.cos(phi) * radiusZ * r
             );
+
+            if(math.length(candidate) >= minRange) {
+                positions[i] = candidate + (float3)bounds.center;
+                i++;
+            }
         }
+
         return positions;
     }
 }

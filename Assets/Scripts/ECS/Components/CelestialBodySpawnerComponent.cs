@@ -6,6 +6,7 @@ public struct CelestialBodySpawnerComponent : IComponentData, IEnableableCompone
     public int Count;
     public uint Seed;
     public Bounds SpawningBounds;
+    public float MinRadius;
     public float2 MassRanage;
     public float2 CenterMassRange;
     public Entity Prefab;

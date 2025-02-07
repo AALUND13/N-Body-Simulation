@@ -40,7 +40,7 @@ public partial class CelestialBodySpawnerSystem : SystemBase {
                 Velocity = float3.zero
             });
 
-            NativeArray<float3> positionEntities = NBodyUtils.GetRandomPositionInSphere(celestialBodySpawner.SpawningBounds, celestialBodySpawner.Seed, celestialBodySpawner.Count);
+            NativeArray<float3> positionEntities = NBodyUtils.GetRandomPositionInSphere(celestialBodySpawner.SpawningBounds, celestialBodySpawner.MinRadius, celestialBodySpawner.Seed, celestialBodySpawner.Count);
 
             for(int i = 0; i < celestialBodySpawner.Count; i++) {
                 Entity spawnedEntity = commandBuffer.Instantiate(celestialBodySpawner.Prefab);

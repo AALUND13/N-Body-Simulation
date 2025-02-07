@@ -6,6 +6,7 @@ public class CelestialBodySpawnerAuthoring : MonoBehaviour {
     public int Count;
     public uint Seed;
     public Bounds SpawningBounds;
+    public float MinRadius;
     public float2 MassRanage;
     public float2 CenterMassRange;
     public GameObject Prefab;
@@ -17,6 +18,7 @@ public class CelestialBodySpawnerAuthoring : MonoBehaviour {
                 Count = authoring.Count,
                 Seed = authoring.Seed,
                 SpawningBounds = authoring.SpawningBounds,
+                MinRadius = authoring.MinRadius,
                 MassRanage = authoring.MassRanage,
                 CenterMassRange = authoring.CenterMassRange,
                 Prefab = GetEntity(authoring.Prefab, TransformUsageFlags.Dynamic)

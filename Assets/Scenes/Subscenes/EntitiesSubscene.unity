@@ -205,6 +205,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   G: 1
+  Theta: 1
+  Epsilon: 1
 --- !u!4 &861995072
 Transform:
   m_ObjectHideFlags: 0

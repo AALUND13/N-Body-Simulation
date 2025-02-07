@@ -21,18 +21,25 @@ public partial struct NBodyGravitySystem : ISystem {
     public void OnUpdate(ref SystemState state) {
         NBodyConfig config = SystemAPI.GetSingleton<NBodyConfig>();
 
-        if(!octree.IsCreated)
+        if(!octree.IsCreated) {
             octree = new Octree(config.Theta, config.Epsilon, config.G, Allocator.Persistent);
+
+            // Debugging gizmos, Commeted out for burst compilation
+            //var localOctree = octree;
+            //GizmoHandler.Instance.OnDrawGizmosAction += () => {
+            //    localOctree.DrawGizmos();
+            //};
+        }
 
         var query = SystemAPI.QueryBuilder().WithAll<CelestialBodyComponent, LocalTransform>().Build();
         NativeArray<Entity> entities = query.ToEntityArray(Allocator.Temp);
-        NativeArray<BodyData> bodyData = new NativeArray<BodyData>(entities.Length, Allocator.TempJob);
+        NativeArray<BodyData> bodyData = new NativeArray<BodyData>(entities.Length, Allocator.Temp);
 
         int index = 0;
         foreach(var (celestialBody, localTransform) in SystemAPI.Query<RefRO<CelestialBodyComponent>, RefRO<LocalTransform>>()) {
             bodyData[index] = new BodyData {
                 Position = localTransform.ValueRO.Position,
-                Mass = celestialBody.ValueRO.Mass
+                Mass = celestialBody.ValueRO.Mass,
             };
             index++;
         }
@@ -49,10 +56,8 @@ public partial struct NBodyGravitySystem : ISystem {
         new BodyGravityJob {
             DeltaTime = SystemAPI.Time.DeltaTime,
             Config = config,
-            Octree = octree
+            Octree = octree,
         }.ScheduleParallel();
-
-        bodyData.Dispose(state.Dependency);
     }
 
     [BurstCompile]
@@ -67,11 +72,7 @@ public partial struct NBodyGravitySystem : ISystem {
 
             body.Velocity += acceleration * DeltaTime;
             transform.Position += body.Velocity * DeltaTime;
+
         }
     }
-}
-
-public struct BodyData {
-    public float3 Position;
-    public float Mass;
 }
