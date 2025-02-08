@@ -1,4 +1,5 @@
 using System;
+using System.Drawing;
 using Unity.Burst;
 using Unity.Collections;
 using Unity.Mathematics;
@@ -14,37 +15,14 @@ public struct Octant {
         Size = size;
     }
 
-    [BurstCompile]
-    public void Subdivide(out NativeArray<Octant> octants) {
-        octants = new NativeArray<Octant>(8, Allocator.Temp);
-
-        float3 center = Center;
-        float3 extents = new float3(Size * 0.5f);  // New half-size for each octant.
-
-        for(int i = 0; i < 8; i++) {
-            float3 offset = new float3(
-                (i & 1) == 0 ? -extents.x : extents.x,
-                (i & 2) == 0 ? -extents.y : extents.y,
-                (i & 4) == 0 ? -extents.z : extents.z
-            );
-            octants[i] = new Octant(center + offset, Size * 0.5f);
-        }
-    }
-
     /// <summary>
     /// Determines which octant of this node's bounds contains the given position.
     /// </summary>
     [BurstCompile]
     public int FindOctant(float3 position) {
-        int index = 0;
-        if(position.x > Center.x)
-            index |= 1;
-        if(position.y > Center.y)
-            index |= 2;
-        if(position.z > Center.z)
-            index |= 4;
-        return index;
-
+        return (math.select(0, 1, position.x > Center.x) |
+                math.select(0, 2, position.y > Center.y) |
+                math.select(0, 4, position.z > Center.z));
     }
 }
 
@@ -111,54 +89,64 @@ public struct Octree : IDisposable {
     public void Insert(float3 position, float mass) {
         int nodeIndex = 0;
 
-        while(Nodes[nodeIndex].IsBranch()) {
-            int quadrant = Nodes[nodeIndex].Octant.FindOctant(position);
-            nodeIndex = Nodes[nodeIndex].Children + quadrant;
-        }
-
-        if(Nodes[nodeIndex].IsEmpty()) {
-            OctreeNode node = Nodes[nodeIndex];
-            node.Position = position;
-            node.Mass = mass;
-            Nodes[nodeIndex] = node;
-            return;
-        }
-
-        float3 existingPos = Nodes[nodeIndex].Position;
-        float existingMass = Nodes[nodeIndex].Mass;
-        if(position.Equals(existingPos)) {
-            OctreeNode node = Nodes[nodeIndex];
-            node.Mass = existingMass + mass;
-            Nodes[nodeIndex] = node;
-            return;
-        }
-
+        // Loop until we have inserted the new body.
         while(true) {
-            int children = Subdivide(nodeIndex);
+            // Get a reference to the current node.
+            ref OctreeNode node = ref Nodes.ElementAt(nodeIndex);
 
-            int octant1 = Nodes[nodeIndex].Octant.FindOctant(existingPos);
-            int octant2 = Nodes[nodeIndex].Octant.FindOctant(position);
+            // If we are at a leaf node, handle the insertion.
+            if(node.IsLeaf()) {
+                // Case 1: The leaf is empty – insert here.
+                if(node.IsEmpty()) {
+                    node.Position = position;
+                    node.Mass = mass;
+                    return;
+                }
 
-            if(octant1 == octant2) {
-                nodeIndex = children + octant1;
-            } else {
-                int n1 = children + octant1;
-                int n2 = children + octant2;
+                // Case 2: The leaf already holds a body at this position – update mass/position.
+                if(position.Equals(node.Position)) {
+                    // For example, you may want to sum the masses.
+                    node.Mass += mass;
+                    return;
+                }
 
-                OctreeNode node = Nodes[n1];
-                node.Position = existingPos;
-                node.Mass = existingMass;
-                Nodes[n1] = node;
+                // Case 3: The leaf is occupied with a different body.
+                // We subdivide the node to create children, then reassign the bodies.
+                int childrenStart = Subdivide(nodeIndex);
 
-                OctreeNode node2 = Nodes[n2];
-                node2.Position = position;
-                node2.Mass = mass;
-                Nodes[n2] = node2;
+                // Determine in which child (octant) the existing body and the new body belong.
+                int octantExisting = node.Octant.FindOctant(node.Position);
+                int octantNew = node.Octant.FindOctant(position);
 
-                return;
+                // If both bodies belong in the same child, we need to descend and insert into that child.
+                if(octantExisting == octantNew) {
+                    // Reassign the existing body into the proper child.
+                    ref OctreeNode child = ref Nodes.ElementAt(childrenStart + octantExisting);
+                    child.Position = node.Position;
+                    child.Mass = node.Mass;
+
+                    // Continue the loop using that child node as the new parent.
+                    nodeIndex = childrenStart + octantNew;
+                } else {
+                    // Otherwise, assign each body to its respective child.
+                    ref OctreeNode child1 = ref Nodes.ElementAt(childrenStart + octantExisting);
+                    child1.Position = node.Position;
+                    child1.Mass = node.Mass;
+
+                    ref OctreeNode child2 = ref Nodes.ElementAt(childrenStart + octantNew);
+                    child2.Position = position;
+                    child2.Mass = mass;
+                    return;
+                }
+            }
+            // If the node is not a leaf, descend into the proper child.
+            else {
+                int quadrant = node.Octant.FindOctant(position);
+                nodeIndex = node.Children + quadrant;
             }
         }
     }
+
 
     [BurstCompile]
     public int Subdivide(int nodeIndex) {
@@ -167,21 +155,24 @@ public struct Octree : IDisposable {
 
         Nodes.ElementAt(nodeIndex).Children = childrenStartIndex;
 
-        var nexts = new NativeArray<int>(8, Allocator.Temp) {
-            [0] = childrenStartIndex + 1,
-            [1] = childrenStartIndex + 2,
-            [2] = childrenStartIndex + 3,
-            [3] = childrenStartIndex + 4,
-            [4] = childrenStartIndex + 5,
-            [5] = childrenStartIndex + 6,
-            [6] = childrenStartIndex + 7,
-            [7] = Nodes[nodeIndex].Next
-        };
+        float3 center = Nodes[nodeIndex].Octant.Center;
+        float3 extents = new float3(Nodes[nodeIndex].Octant.Size * 0.5f);
 
-        Nodes[nodeIndex].Octant.Subdivide(out NativeArray<Octant> octants);
+        int next = childrenStartIndex + 1;
 
         for(int i = 0; i < 8; i++) {
-            Nodes.Add(new OctreeNode(nexts[i], octants[i]));
+            float3 offset = new float3(
+                (i & 1) == 0 ? -extents.x : extents.x,
+                (i & 2) == 0 ? -extents.y : extents.y,
+                (i & 4) == 0 ? -extents.z : extents.z
+            );
+            Octant octant = new Octant(center + offset, Nodes[nodeIndex].Octant.Size * 0.5f);
+
+            if (i == 7) {
+                Nodes.Add(new OctreeNode(Nodes[nodeIndex].Next, octant));
+            } else {
+                Nodes.Add(new OctreeNode(next + i, octant));
+            }
         }
 
         return childrenStartIndex;
@@ -191,22 +182,21 @@ public struct Octree : IDisposable {
     public float3 CalculateAcceleration(float3 position) {
         float3 acceleration = float3.zero;
 
-        int node = 0;
+        int nodeIndex = 0;
         while(true) {
-            OctreeNode n = Nodes[node];
+            OctreeNode node = Nodes[nodeIndex];
 
-            float3 direction = n.Position - position;
+            float3 direction = node.Position - position;
             float distanceSquared = math.lengthsq(direction);
-            float distance = math.sqrt(distanceSquared);
 
-            if(n.IsLeaf() || ((n.Octant.Size / distance) < thetaSquared)) {
-                var denominator = (distanceSquared + epsilonSquared) * distance;
-                acceleration += direction * (gravitationalConstant * n.Mass / (denominator + 0.001f));
+            if(node.IsLeaf() || (node.Octant.Size * node.Octant.Size < distanceSquared * thetaSquared)) {
+                var denominator = math.max((distanceSquared + epsilonSquared) * math.sqrt(distanceSquared), 0.01f);
+                acceleration += direction * (gravitationalConstant * node.Mass / denominator);
 
-                if(n.Next == 0) break;
-                node = n.Next;
+                if(node.Next == 0) break;
+                nodeIndex = node.Next;
             } else {
-                node = n.Children;
+                nodeIndex = node.Children;
             }
         }
 

@@ -1,4 +1,5 @@
-﻿using Unity.Burst;
+﻿using System.Diagnostics;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
@@ -37,7 +38,6 @@ public partial struct NBodyGravitySystem : ISystem {
 
         float3 min = new float3(float.MaxValue);
         float3 max = new float3(float.MinValue);
-
         foreach(var (celestialBody, localTransform, enity) in SystemAPI.Query<RefRO<CelestialBodyComponent>, RefRO<LocalTransform>>().WithEntityAccess()) {
             min = math.min(min, localTransform.ValueRO.Position);
             max = math.max(max, localTransform.ValueRO.Position);
@@ -47,10 +47,10 @@ public partial struct NBodyGravitySystem : ISystem {
                 Mass = celestialBody.ValueRO.Mass,
             });
         }
-
         Octant bounds = new Octant((min + max) * 0.5f, math.cmax(max - min));
 
         octree.Clear(bounds);
+
 
         foreach(var body in bodies) {
             octree.Insert(body.Position, body.Mass);
