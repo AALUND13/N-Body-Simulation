@@ -1,7 +1,6 @@
 ﻿using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
-using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Transforms;
 
@@ -9,10 +8,12 @@ using Unity.Transforms;
 public partial struct NBodyGravitySystem : ISystem {
     private Octree octree;
 
+    [BurstCompile]
     public void OnCreate(ref SystemState state) {
         state.RequireForUpdate<NBodyConfig>();
     }
 
+    [BurstCompile]
     public void OnDestroy(ref SystemState state) {
         if(octree.IsCreated)
             octree.Dispose();
@@ -59,23 +60,18 @@ public partial struct NBodyGravitySystem : ISystem {
 
         new BodyGravityJob {
             DeltaTime = SystemAPI.Time.DeltaTime,
-            Config = config,
             Octree = octree,
-        }.ScheduleParallel();
+        }.ScheduleParallel(state.Dependency).Complete();
     }
 
     [BurstCompile]
     private partial struct BodyGravityJob : IJobEntity {
         [ReadOnly] public float DeltaTime;
-        [ReadOnly] public NBodyConfig Config;
         [ReadOnly] public Octree Octree;
 
         [BurstCompile]
-        public void Execute(ref LocalTransform transform, ref CelestialBodyComponent body) {
-            float3 acceleration = Octree.CalculateAcceleration(transform.Position);
-
-            body.Velocity += acceleration * DeltaTime;
-            transform.Position += body.Velocity * DeltaTime;
+        public void Execute(BodyGravityAspect aspect) {
+            aspect.UpdatePosition(DeltaTime, Octree);
         }
     }
 }
