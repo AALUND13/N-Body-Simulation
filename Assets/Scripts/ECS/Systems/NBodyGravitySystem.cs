@@ -1,6 +1,7 @@
 ﻿using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Transforms;
 
@@ -31,24 +32,27 @@ public partial struct NBodyGravitySystem : ISystem {
             //};
         }
 
-        var query = SystemAPI.QueryBuilder().WithAll<CelestialBodyComponent, LocalTransform>().Build();
-        NativeArray<Entity> entities = query.ToEntityArray(Allocator.Temp);
-        NativeArray<BodyData> bodyData = new NativeArray<BodyData>(entities.Length, Allocator.Temp);
+        NativeList<BodyData> bodies = new NativeList<BodyData>(Allocator.Temp);
 
-        int index = 0;
-        foreach(var (celestialBody, localTransform) in SystemAPI.Query<RefRO<CelestialBodyComponent>, RefRO<LocalTransform>>()) {
-            bodyData[index] = new BodyData {
+        float3 min = new float3(float.MaxValue);
+        float3 max = new float3(float.MinValue);
+
+        foreach(var (celestialBody, localTransform, enity) in SystemAPI.Query<RefRO<CelestialBodyComponent>, RefRO<LocalTransform>>().WithEntityAccess()) {
+            min = math.min(min, localTransform.ValueRO.Position);
+            max = math.max(max, localTransform.ValueRO.Position);
+
+            bodies.Add(new BodyData {
                 Position = localTransform.ValueRO.Position,
                 Mass = celestialBody.ValueRO.Mass,
-            };
-            index++;
+            });
         }
 
-        Octant.NewContaining(bodyData, out Octant bounds);
+        Octant bounds = new Octant((min + max) * 0.5f, math.cmax(max - min));
+
         octree.Clear(bounds);
 
-        for(int i = 0; i < bodyData.Length; i++) {
-            octree.Insert(bodyData[i]);
+        foreach(var body in bodies) {
+            octree.Insert(body.Position, body.Mass);
         }
 
         octree.Propagate();
@@ -72,7 +76,6 @@ public partial struct NBodyGravitySystem : ISystem {
 
             body.Velocity += acceleration * DeltaTime;
             transform.Position += body.Velocity * DeltaTime;
-
         }
     }
 }
