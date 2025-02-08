@@ -1,9 +1,8 @@
 using System;
-using System.Drawing;
 using Unity.Burst;
 using Unity.Collections;
+using Unity.Jobs;
 using Unity.Mathematics;
-using UnityEngine;
 
 [BurstCompile]
 public struct Octant {
@@ -53,7 +52,6 @@ public struct Octree : IDisposable {
         Nodes.Add(new OctreeNode(0, newOctant));
     }
 
-    // Replace the foreach loop in the Propagate method with the following code
     [BurstCompile]
     public void Propagate() {
         // Go through the nodes in reverse order and propagate values up the tree.
@@ -91,27 +89,21 @@ public struct Octree : IDisposable {
 
         // Loop until we have inserted the new body.
         while(true) {
-            // Get a reference to the current node.
             ref OctreeNode node = ref Nodes.ElementAt(nodeIndex);
 
             // If we are at a leaf node, handle the insertion.
             if(node.IsLeaf()) {
-                // Case 1: The leaf is empty – insert here.
                 if(node.IsEmpty()) {
                     node.Position = position;
                     node.Mass = mass;
                     return;
                 }
 
-                // Case 2: The leaf already holds a body at this position – update mass/position.
                 if(position.Equals(node.Position)) {
-                    // For example, you may want to sum the masses.
                     node.Mass += mass;
                     return;
                 }
 
-                // Case 3: The leaf is occupied with a different body.
-                // We subdivide the node to create children, then reassign the bodies.
                 int childrenStart = Subdivide(nodeIndex);
 
                 // Determine in which child (octant) the existing body and the new body belong.
@@ -120,12 +112,10 @@ public struct Octree : IDisposable {
 
                 // If both bodies belong in the same child, we need to descend and insert into that child.
                 if(octantExisting == octantNew) {
-                    // Reassign the existing body into the proper child.
                     ref OctreeNode child = ref Nodes.ElementAt(childrenStart + octantExisting);
                     child.Position = node.Position;
                     child.Mass = node.Mass;
 
-                    // Continue the loop using that child node as the new parent.
                     nodeIndex = childrenStart + octantNew;
                 } else {
                     // Otherwise, assign each body to its respective child.
@@ -138,9 +128,7 @@ public struct Octree : IDisposable {
                     child2.Mass = mass;
                     return;
                 }
-            }
-            // If the node is not a leaf, descend into the proper child.
-            else {
+            } else {
                 int quadrant = node.Octant.FindOctant(position);
                 nodeIndex = node.Children + quadrant;
             }
@@ -168,7 +156,7 @@ public struct Octree : IDisposable {
             );
             Octant octant = new Octant(center + offset, Nodes[nodeIndex].Octant.Size * 0.5f);
 
-            if (i == 7) {
+            if(i == 7) {
                 Nodes.Add(new OctreeNode(Nodes[nodeIndex].Next, octant));
             } else {
                 Nodes.Add(new OctreeNode(next + i, octant));
