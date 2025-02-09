@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using Unity.Burst;
+﻿using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
@@ -26,12 +25,6 @@ public partial struct NBodyGravitySystem : ISystem {
 
         if(!octree.IsCreated) {
             octree = new Octree(config.Theta, config.Epsilon, config.G, Allocator.Persistent);
-
-            // Debugging gizmos, Commeted out for burst compilation
-            //var localOctree = octree;
-            //GizmoHandler.Instance.OnDrawGizmosAction += () => {
-            //    localOctree.DrawGizmos();
-            //};
         }
 
         NativeList<BodyData> bodies = new NativeList<BodyData>(Allocator.Temp);
