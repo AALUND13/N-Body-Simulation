@@ -3,11 +3,11 @@ using Unity.Mathematics;
 using UnityEngine;
 
 public struct CelestialBodySpawnerComponent : IComponentData, IEnableableComponent {
-    public int Count;
-    public uint Seed;
-    public Bounds SpawningBounds;
-    public float MinRadius;
     public float2 MassRanage;
     public float2 CenterMassRange;
+
+    public int Count;
+    public uint Seed;
+    public float MinRadius;
     public Entity Prefab;
 }

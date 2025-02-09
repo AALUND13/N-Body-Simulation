@@ -1,8 +1,13 @@
 using System;
+using System.Linq;
+using System.Threading;
 using Unity.Burst;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
+using UnityEngine.UIElements;
 
 [BurstCompile]
 public struct Octant {
@@ -13,6 +18,26 @@ public struct Octant {
         Center = center;
         Size = size;
     }
+
+    [BurstCompile]
+    public static void NewContaining(in NativeArray<BodyData> bodyData, out Octant bounds) {
+        if(bodyData.Length == 0)
+            bounds = new Octant(float3.zero, 0);
+
+        float3 min = new float3(float.MaxValue);
+        float3 max = new float3(float.MinValue);
+
+        for(int i = 0; i < bodyData.Length; i++) {
+            min = math.min(min, bodyData[i].Position);
+            max = math.max(max, bodyData[i].Position);
+        }
+
+        float3 center = (min + max) * 0.5f;
+        float size = math.cmax(max - min);
+
+        bounds = new Octant(center, size);
+    }
+
 
     /// <summary>
     /// Determines which octant of this node's bounds contains the given position.
@@ -59,7 +84,7 @@ public struct Octree : IDisposable {
             int nodeIndex = Parents[i];
             int childIndex = Nodes[nodeIndex].Children;
 
-            OctreeNode node = Nodes[nodeIndex];
+            ref OctreeNode node = ref Nodes.ElementAt(nodeIndex);
             node.Position = Nodes[childIndex].Position * Nodes[childIndex].Mass
                 + Nodes[childIndex + 1].Position * Nodes[childIndex + 1].Mass
                 + Nodes[childIndex + 2].Position * Nodes[childIndex + 2].Mass
@@ -79,7 +104,6 @@ public struct Octree : IDisposable {
                 + Nodes[childIndex + 7].Mass;
 
             node.Position /= node.Mass;
-            Nodes[nodeIndex] = node;
         }
     }
 
@@ -144,7 +168,7 @@ public struct Octree : IDisposable {
         Nodes.ElementAt(nodeIndex).Children = childrenStartIndex;
 
         float3 center = Nodes[nodeIndex].Octant.Center;
-        float3 extents = new float3(Nodes[nodeIndex].Octant.Size * 0.5f);
+        float3 extents = Nodes[nodeIndex].Octant.Size * 0.5f;
 
         int next = childrenStartIndex + 1;
 
@@ -154,7 +178,7 @@ public struct Octree : IDisposable {
                 (i & 2) == 0 ? -extents.y : extents.y,
                 (i & 4) == 0 ? -extents.z : extents.z
             );
-            Octant octant = new Octant(center + offset, Nodes[nodeIndex].Octant.Size * 0.5f);
+            Octant octant = new Octant(center + offset, extents.x);
 
             if(i == 7) {
                 Nodes.Add(new OctreeNode(Nodes[nodeIndex].Next, octant));
@@ -178,7 +202,7 @@ public struct Octree : IDisposable {
             float distanceSquared = math.lengthsq(direction);
 
             if(node.IsLeaf() || (node.Octant.Size * node.Octant.Size < distanceSquared * thetaSquared)) {
-                var denominator = math.max((distanceSquared + epsilonSquared) * math.sqrt(distanceSquared), 0.01f);
+                float denominator = math.max((distanceSquared + epsilonSquared) * math.sqrt(distanceSquared), 0.01f);
                 acceleration += direction * (gravitationalConstant * node.Mass / denominator);
 
                 if(node.Next == 0) break;
@@ -205,10 +229,9 @@ public struct OctreeNode {
     public Octant Octant;
 
     public float3 Position;
-
+    public float3 CenterOfMass;
 
     public float Mass;
-    public float3 CenterOfMass;
 
     public OctreeNode(int next, Octant bounds) {
         Children = 0;

@@ -4,6 +4,7 @@ using Unity.Entities;
 using Unity.Entities.UniversalDelegates;
 using Unity.Mathematics;
 using Unity.Transforms;
+using UnityEngine;
 
 [BurstCompile]
 public partial class CelestialBodySpawnerSystem : SystemBase {
@@ -15,23 +16,17 @@ public partial class CelestialBodySpawnerSystem : SystemBase {
     protected override void OnUpdate() {
         NBodyConfig config = SystemAPI.GetSingleton<NBodyConfig>();
 
-        // Get all entities with CelestialBodySpawnerComponent
-        var spawners = SystemAPI.QueryBuilder().WithAll<CelestialBodySpawnerComponent>().Build();
-        var spawnerEntities = spawners.ToEntityArray(Allocator.Temp);
-
         // Create a command buffer to record commands
         EntityCommandBuffer commandBuffer = new EntityCommandBuffer(Allocator.Temp);
 
-        foreach(var spawnerEntity in spawnerEntities) {
-            CelestialBodySpawnerComponent celestialBodySpawner = EntityManager.GetComponentData<CelestialBodySpawnerComponent>(spawnerEntity);
+        foreach(var (spawnerComponent, localTransform, localToWorld, entity) in SystemAPI.Query<RefRO<CelestialBodySpawnerComponent>, RefRO<LocalTransform>, RefRO<LocalToWorld>>().WithEntityAccess()) {
+            Entity centralEntity = commandBuffer.Instantiate(spawnerComponent.ValueRO.Prefab);
+            Unity.Mathematics.Random random = new Unity.Mathematics.Random(spawnerComponent.ValueRO.Seed);
 
-            Entity centralEntity = commandBuffer.Instantiate(celestialBodySpawner.Prefab);
-            Random random = new Random(celestialBodySpawner.Seed);
-
-            float centerBodyMass = random.NextFloat(celestialBodySpawner.CenterMassRange.x, celestialBodySpawner.CenterMassRange.y);
+            float centerBodyMass = random.NextFloat(spawnerComponent.ValueRO.CenterMassRange.x, spawnerComponent.ValueRO.CenterMassRange.y);
 
             commandBuffer.SetComponent(centralEntity, new LocalTransform {
-                Position = celestialBodySpawner.SpawningBounds.center,
+                Position = localTransform.ValueRO.Position,
                 Rotation = quaternion.identity,
                 Scale = NBodyUtils.GetRadiusWithMass(centerBodyMass, 1f)
             });
@@ -40,12 +35,19 @@ public partial class CelestialBodySpawnerSystem : SystemBase {
                 Velocity = float3.zero
             });
 
-            NativeArray<float3> positionEntities = NBodyUtils.GetRandomPositionInSphere(celestialBodySpawner.SpawningBounds, celestialBodySpawner.MinRadius, celestialBodySpawner.Seed, celestialBodySpawner.Count);
+            float4x4 matrix = localToWorld.ValueRO.Value;
+            float3 scale;
+            scale.x = math.length(matrix.c0.xyz);
+            scale.y = math.length(matrix.c1.xyz);
+            scale.z = math.length(matrix.c2.xyz);
+            Bounds bounds = new Bounds(localTransform.ValueRO.Position, scale);
 
-            for(int i = 0; i < celestialBodySpawner.Count; i++) {
-                Entity spawnedEntity = commandBuffer.Instantiate(celestialBodySpawner.Prefab);
+            NativeArray<float3> positionEntities = NBodyUtils.GetRandomPositionInSphere(bounds, spawnerComponent.ValueRO.MinRadius, spawnerComponent.ValueRO.Seed, spawnerComponent.ValueRO.Count);
 
-                float mass = random.NextFloat(celestialBodySpawner.MassRanage.x, celestialBodySpawner.MassRanage.y);
+            for(int i = 0; i < spawnerComponent.ValueRO.Count; i++) {
+                Entity spawnedEntity = commandBuffer.Instantiate(spawnerComponent.ValueRO.Prefab);
+
+                float mass = random.NextFloat(spawnerComponent.ValueRO.MassRanage.x, spawnerComponent.ValueRO.MassRanage.y);
                 commandBuffer.SetComponent(spawnedEntity, new LocalTransform {
                     Position = positionEntities[i],
                     Rotation = quaternion.identity,
@@ -57,7 +59,7 @@ public partial class CelestialBodySpawnerSystem : SystemBase {
                 });
             }
 
-            commandBuffer.SetComponentEnabled<CelestialBodySpawnerComponent>(spawnerEntity, false);
+            commandBuffer.SetComponentEnabled<CelestialBodySpawnerComponent>(entity, false);
         }
 
         commandBuffer.Playback(EntityManager);
